@@ -1,4 +1,7 @@
 import numpy as np
+from scipy.stats import norm
+import torch
+import gpytorch
 
 ## Constant for Cost function
 THRESHOLD = 0.5
@@ -52,6 +55,10 @@ You can add new methods, and make changes. The checker script performs:
 It uses predictions to compare to the ground truth using the cost_function above.
 """
 
+# In order to complete this task we followed the GPyTorch Regression tutorial that can
+# be found here : [https://docs.gpytorch.ai/en/v1.2.0/examples/01_Exact_GPs/Simple_GP_Regression.html]
+# We copyed partially or in integrality some part of these tutorial/
+
 
 class Model():
 
@@ -59,21 +66,87 @@ class Model():
         """
             TODO: enter your code here
         """
-        pass
+        # Initialize de likelihood (not the model yet as we need training set to do it)
+        self.likelihood = gpytorch.likelihoods.GaussianLikelihood()
+        # the number of iteration we will use to train our model
+        self.iteration = 50
 
     def predict(self, test_x):
         """
             TODO: enter your code here
         """
-        ## dummy code below
-        y = np.ones(test_x.shape[0]) * THRESHOLD - 0.00001
-        return y
+
+        # Create a tensor of the test set
+        test_x = torch.Tensor(test_x)
+
+        # Turn the model into evaluation mode
+        self.model.eval()
+        self.likelihood.eval()
+
+        # Make predictions by feeding model through likelihood
+        # Give us MultivariateNormals (for each prediction)
+        with torch.no_grad(), gpytorch.settings.fast_pred_var():
+            y_preds_obs = self.likelihood(self.model(test_x))
+
+        #take the mean of the multivariate observation
+        y_preds = y_preds_obs.mean.numpy()
+
+        prop = 1 - norm(y_preds, y_preds_obs.variance.detach().numpy()).cdf([0.5]*len(y_preds))
+        y_preds[(y_preds < 0.5) & (prop > 0.3)] = 0.5
+
+        return y_preds
 
     def fit_model(self, train_x, train_y):
         """
              TODO: enter your code here
         """
-        pass
+        # Construct tensors with training data
+        train_x = torch.Tensor(train_x)
+        train_y = torch.Tensor(train_y)
+
+        # Initialize the model with our training set and likelihood
+        self.model = ExactGPModel(train_x, train_y, self.likelihood)
+
+        # Train both the likelihood and the model in order to find optimal model hyperparameters
+        self.model.train()
+        self.likelihood.train()
+
+        # Use the Adam optimizer
+        # We tried the SGD, but results were not good enough compare to the Adam optimizer
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=0.01)
+
+        # "Loss" for GPs - the marginal log likelihood
+        mll = gpytorch.mlls.ExactMarginalLogLikelihood(self.likelihood, self.model)
+
+        for i in range(self.iteration):
+            # Zero gradients from previous iteration
+            optimizer.zero_grad()
+            # Output from model
+            output = self.model(train_x)
+            # Calc loss and backpropagation gradients
+            loss = -mll(output, train_y)
+            loss.backward()
+            print('Iter %d/%d - Loss: %.3f   lengthscale: %.3f   noise: %.3f' % (
+                i + 1, self.iteration, loss.item(),
+                self.model.covar_module.base_kernel.lengthscale.item(),
+                self.model.likelihood.noise.item()
+            ))
+            optimizer.step()
+
+
+# Simplest form of Gaussian Model, Inference (cf. Tutorial)
+class ExactGPModel(gpytorch.models.ExactGP):
+
+    def __init__(self, train_x, train_y, likelihood):
+        super(ExactGPModel, self).__init__(train_x, train_y, likelihood)
+        self.mean_module = gpytorch.means.ConstantMean()
+        # Here maybe we can use another kernel to compute the covar => ??
+        self.covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel())
+
+    def forward(self, x):
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
 
 def main():
