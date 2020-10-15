@@ -132,9 +132,10 @@ class Model():
         cdf_half = norm_ditribution.cdf([THRESHOLD] * nbr)
         # find the best confidence value using a for loop with value 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9
         confidence = 0.7
+        epsilon = 0.000000001
 
         # Update prediction in order to be less penalized by the loss function
-        y_preds[(y_preds < THRESHOLD) & (cdf_half < confidence)] = THRESHOLD + 0.000000001
+        y_preds[(y_preds < THRESHOLD) & (cdf_half < confidence)] = THRESHOLD + epsilon
 
         #############################################################################
 
