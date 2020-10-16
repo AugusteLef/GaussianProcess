@@ -43,11 +43,11 @@ def cost_function(true, predicted):
         reward = 0
     return np.mean(cost) - np.mean(reward)
 
-# Test of replicate the function cost but adapter for Tensor
+# Test of replicate the function cost but adapted for Tensor
+# We finally did not used that because of lack of performance,
+# maybe the implementation was not correct
 def cost_function_torch(true, predicted):
-    """
 
-    """
     cost = (true - predicted)**2
 
     # true above threshold (case 1)
@@ -122,13 +122,14 @@ class Model():
         y_preds = y_obs.mean.detach().numpy()
 
         ### Trick to avoid too much penality from the loss function of the assignment ###
+        ### You can find more details on why and how we did this trick on the project description
 
         # For each observation we also get the variance of the distribution
         variance_obs = y_obs.variance.detach().numpy()
         # Then we can define normal continuous random variable with mean(=loc)
         # and var(=scale) from the predicted distribution
         norm_ditribution = norm(y_preds, variance_obs)
-        # evaluated cdf at THRESHOLD for each predicted distibution
+        # evaluated CDF at THRESHOLD for each predicted distributions
         cdf_half = norm_ditribution.cdf([THRESHOLD] * nbr)
         # find the best confidence value using a for loop with value 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9
         confidence = 0.7
@@ -169,16 +170,17 @@ class Model():
             optimizer.zero_grad()
             # Output from model
             output = self.model(train_x)
-            # Calc loss and backpropagation gradients
+            # Compute loss and backpropagation gradients
             loss = -mll(output, train_y)
 
             ######################################
+
             # Here we should try to use the given loss function to train our model
             # It would probably allow us to not manually modify the predications at the end
-
             #output_np = output.mean.detach().numpy()
             #loss = cost_function_torch(train_y, output.mean)
             #print(loss)
+
             ######################################
 
             loss.backward()
