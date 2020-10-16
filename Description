@@ -1,0 +1,145 @@
+According to the United Nations, one in three people worldwide do not have access to safe drinking water. Unsafe water is a leading risk factor for death, especially at low incomes, and is one of the world's largest health and environmental problems. Groundwater pollution occurs when pollutants are released into the ground and make their way down into groundwater. While water contamination can occur from naturally occurring contaminants, such as arsenic or fluoride, common causes of water pollution are on-site sanitation systems, effluent from wastewater treatment plants, petrol filling stations or agricultural fertilizers.
+
+In order to prevent outbreaks and incidents of water poisonings, detecting ground-water contamination is crucial. Geostatistics has often utilized the Gaussian Process (GP) to model the spatial pattern of pollutant concentrations in the ground. Usually, a data point in 2D represents a geological well where a sample was taken from a bore hole to measure concentration of pollutants.
+
+In the following task, we will use Gaussian Process regression (or a similar method) in order to model groundwater pollution, and try to predict the concentration of pollutants at previously unmeasured wells (points).
+
+In order to perfom this task we followed the GPytorch Regression Tutorial : https://docs.gpytorch.ai/en/v1.2.0/examples/01_Exact_GPs/Simple_GP_Regression.html
+
+SET UP THE MODEL
+
+In order to set up the model we will need different object :
+
+	-Gaussian Process (GP) Model
+	- Likelihood
+	- Mean (defining the prior mean of the GP)
+	- Kernel (defining the prior covariance of the GP)
+	- MultivariateNormal Distribution
+
+THE GP MODEL
+
+In order to construct the model we had to choose the Mean, the kernel and the multivariatenormal distribution. From the GPytorch package we choosed the following one :
+
+	-Mean : ConstantMean() [https://docs.gpytorch.ai/en/v1.1.1/_modules/gpytorch/means constant_mean.html#ConstantMean]
+	-Kernel : RBFKernel() (squared exponential kernel) [https://docs.gpytorch.ai/en/v1.1.1/_modules/gpytorch/kernels/]
+	-Distribution : MultivariateNormal(mean, covar) [https://docs.gpytorch.ai/en/v1.1.1/_modules/gpytorch/distributions/multivariate_normal.html#MultivariateNormal] .
+
+
+Other possibilities of mean or kernel could have been used, but these ones well fited the task. You can find the different package here : [https://docs.gpytorch.ai/en/v1.1.1/index.html]
+
+A GPModel is composed as follow :
+
+* An __init__ method that takes the trraining data (X, y) and a likelihood and construct what is necessecary for the *forward* function of the model. It construct the mean and the covar (kernel) Modules
+* A forward method that takes as argument *n x d* [X]  data and returns a MultivariateNormal with the prior mean and covariance evaluated at X. So it concretely return mu(X) and the *n x n* covariance matrix Kxx.
+
+In GPyTorch, an ExactGP has .train() and .eval() mode that are used respectively to optimize model hyperparameters and to compute prediction.
+
+NB: We tried the RQKernel() (rational quadratic kernel) but result were not good enough
+
+INITIALIZE MODEL AND LIKELIHOOD
+
+As said in the project description, with Bayesian models, a commonly used principle in choosing the right kernel or hyper-parameters is to use the "data likelihood", otherwise known as the marginal likelihood to find the best model. We decided to follow this advice and to use the Gaussian Likelihood proposed by GPyTorch (and we will see later that we use the ExactMarginalLogLikelihood as losse function)
+
+Moreover, as we use GPyTorch function we have ton use tensor instead of numpy array. This is why we 'cast' our training set into Tensor.
+
+We already define the number of iteration use for the training loop. Be default this number is 50 (cf. tutorial), we tried different value (25, 100, 150) but 50 seemed to us being the best compromise between performance and computation time. Also with a too high number of iteration we sometimes see the loss become bigger and we suspected overfitting the data.
+
+LARGE SCALE TRAINING
+
+Fortunately, with GPyTorch the computation time was quite reasonable (around 2 min), so we decided to not implement this method.
+
+FIT/TRAIN THE MODEL
+
+We are now going to fit our model, find the hyperparameters etc. As described in the tutorial :
+
+"The most obvious difference here compared to many other GP implementations is that, as in standard PyTorch, the core training loop is written by the user. In GPyTorch, we make use of the standard PyTorch optimizers as from torch.optim, and all trainable parameters of the model should be of type torch.nn.Parameter. Because GP models directly extend torch.nn.Module, calls to methods like model.parameters() or model.named_parameters() function as you might expect coming from PyTorch."
+
+In order to well fiting our model we will have to :
+
+	-Turn the model in training mode to find the optimal hyperparameters
+	-Find an adequat optimizer
+	-Compute the marginal log likelihood (MLL)
+	-Define a training Loop
+
+TRAINING MODE
+
+First we tell our model to turn the train mode. We can do it via the pytorch function .train() . This function is define as follow :
+
+	def train(self, mode=True):
+    		r"""Sets the module in training mode."""      
+    		self.training = mode
+    		for module in self.children():
+        	module.train(mode)
+    	return self
+
+OPTIMIZER
+
+Then we search a good optimizer. We tried the two following one :
+
+	-Adaptive Moment Estimation (Adam) optimizer with learning rate 0.01 ?
+	-SGD optimizer with learnin rate 0.01 and momentum 0.9
+
+You can find more info on both optimizer here [https://pytorch.org/docs/stable/optim.html]
+
+The adam optimizer can be described as follow :
+
+*Adam is a replacement optimization algorithm for stochastic gradient descent for training deep learning models.
+*Adam combines the best properties of the AdaGrad and RMSProp algorithms to provide an optimization algorithm that can handle sparse gradients on noisy problems.
+*Adam is relatively easy to configure where the default configuration parameters do well on most problems.
+
+More info on the different optimizer that exist and how they work her : [https://ruder.io/optimizing-gradient-descent/index.html]
+
+In PyTorch, the adam optimizer is presented as follow : torch.optim.Adam(params, lr=0.001, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
+
+After testing we choosed the Adam optimizer as it worked better with our model. We also tried different learning rate value (0.001, 0.0001 etc) but 0.01 was gave us the best results
+
+MARGINAL LOG LIKELIHOOD
+
+We now need to compute, or approximate/bound, the MLL. In GPyTorch there is the exact marginal log likelihood for an exact Gaussian process with a Gaussian Likelihood : gpytorch.mlls.ExactMarginalLogLikelihood
+
+Other possibilities as approximatinf the MML using variational evidence lower bound (ELBO) could have been use but it was not necessary in our case as the ExactMarginalLogLikelihood was exactly what we needed.
+
+More details here : [ https://docs.gpytorch.ai/en/v1.1.1/marginal_log_likelihoods.html ]
+
+TRAINING LOOP
+
+Finally we need to define a training loop. A basic training loop works as follow :
+
+	1) Zero all parameters graddients
+	2) Call the model and compute the loss
+	3) Call backward on the loss to fill in gradients
+	4) Take a step on the optimizer
+
+Note that we compute the loss here using the MLL. We also tried to compute it using the cost function given in the project description, but either it's use who did not implement the method correctly (as we had ton adapt the method such that it works with Tensor instead of numpy array), or simply it was not the good solution.
+
+PREDICTION
+
+Before starting, we have to remember that we defined the GP model such that it returns MultivariateNormal containing the posterior mean and covariance. Then we need to 'treat' the results of our GP model prediction in order to obtain the final resutls
+
+First, as for the training data, we need to convert our testing set into tensor.
+Then we need to turn our model into the eval mode (until now it was in training mode).
+From these, we can obtain the 'precise' prediction by taking the mean of each normal distribution. Warning: We need to apply detach() and numpy() because results were given in torch format.
+
+At this moment we thought we were good, but not good enought for the baseline apparently. So we hade to improve our final results. We already tried to change the optimizer, the kernel, the loss function used etc. But nothing was good enough to outperform the baseline. Then we saw in the task description that :
+
+"We utilize a specifically designed cost function, where deviation from the true concentration levels is penalized, and you are rewarded for correctly predicting safe regions. Under this specific cost function, the mean prediction might not be optimal. Note that the mean prediction refers to the optimal decision with respect to a general squared loss and some posterior distribution over the true value to be predicted."
+
+From this we knew that we had to limit our errors that cost a lot into the losse function. As the threshold for a 'safe place' is 0.5, we decided to remove predicted value bellow 0.5 where we are not sure enought of the quality of the prediction. This is how we did it :
+
+First, we get the variance of each prediction using the same method as for the mean.
+We can now define a normal continuous random variable for each predictions with the predicted variance and mean, using the function norm() from scipy.stats
+And for all normal continous random variable we can compute de CDF at 0.5 (eq. the Threshold), knowing that the y_real are between 0 and 1 by definitnon, and that the THRESHOLD use in the loss function for safe places is 0.5).
+Finally we now use these cdf results in order to see where errors could have occured. We want to replace every prediction that is less than 0.5 (prediction that could cost us a lot of penalities) and where the cdf at 0.5 (Probability that the prediction is in fact less than 0.5) for this prediction is less than our 'confidence value'. But we still need to determine our 'confidence value'. To do it we tried different values between 0.6 and 0.9 and we see that a confidence of 0.7 give us the best results. We replace thes values by 5 + epsilon such that the loss function will not considere them as 'safe place' and then not penalize us for classifying those regions as safe when they are probbaly not.
+
+RESULTS
+
+When running this code with the Docker (sudo bash runner.sh) we obtained 0.033 as result. The PUBLIC baseline is 0.064. We decided to upload our code and results to the submit system in order to see if we can also outperformed the PRIVATE baseline (0.069). We obtained a score of 0.048, which is better than the PRIVATE baseline. Even if we saw that a lot of people had better scores, we decided to stop here the research as we already spent a lot of time on the task.
+
+
+
+NB: The description is adapted from the one we did on the jupyter notebook. Unfortunately we are only allowed to submit a text description (without extra code, visualization etc), but the jupyternotebook can be found on our respective GitHub page (in private).
+
+
+
+
+
